@@ -1,1 +1,1 @@
-# Uniswap ZONE / WETH Swap Script
+# Uniswap WETH / USDC Swap Script
