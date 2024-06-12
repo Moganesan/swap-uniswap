@@ -696,7 +696,7 @@ const signer = new ethers.Wallet(privateKey, provider);
 const uniswapRouter = "0x3bFA4769FB09eefC5a80d6E87c3B9C650f7Ae48E";
 
 // swap parameters
-const amountIn = ethers.utils.parseUnits("0.4", 18);
+const amountIn = ethers.utils.parseUnits("0.1", 18);
 const WETHAddress = "0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14";
 const USDCAddress = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238";
 
@@ -704,16 +704,16 @@ async function main() {
   const routerContract = new ethers.Contract(uniswapRouter, uniswapAbi, signer);
   const tokenContract = new ethers.Contract(WETHAddress, erc20Abi, signer);
   console.log(
-    "ETH Balance",
+    "Native Balance : ",
     ethers.utils.formatEther(await provider.getBalance(signer.address))
   );
   console.log(
-    "WETH Balance",
+    "Weth Balance : ",
     ethers.utils.formatEther(await tokenContract.balanceOf(signer.address))
   );
 
   const CheckAllowance = await checkAllowance(WETHAddress);
-  console.log("ALLOWANCE", ethers.utils.formatEther(CheckAllowance));
+  console.log("Allowance : ", ethers.utils.formatEther(CheckAllowance));
   if (Number(CheckAllowance) < Number(ethers.utils.formatUnits(amountIn, 18))) {
     try {
       await tokenContract.approve(uniswapRouter, amountIn);
@@ -726,21 +726,23 @@ async function main() {
     }
   }
 
-  const path = [WETHAddress, USDCAddress];
-  // const to = signer.address;
-  // const deadline = Math.floor(Date.now() / 1000) + 60 * 20; // 20 min from now
-
   try {
-    const res = await routerContract.swapExactTokensForTokens(
-      amountIn,
-      0,
-      path,
-      signer.address,
-      { gasLimit: 100000 }
+    const res = await routerContract.exactInputSingle(
+      {
+        tokenIn: WETHAddress,
+        tokenOut: USDCAddress,
+        fee: 3000, // Example fee (0.5%)
+        recipient: signer.address,
+        amountIn: amountIn,
+        amountOutMinimum: 0, // Minimum amount of output token expected
+        sqrtPriceLimitX96: 0, // No price limit
+      },
+      { gasLimit: 1000000, value: ethers.utils.parseEther("0.01") }
     );
-    console.log(res);
 
-    await res.wait();
+    const receipt = await res.wait();
+
+    console.log(receipt);
   } catch (err) {
     console.log("Swap Error", err);
   }
