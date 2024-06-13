@@ -4,12 +4,13 @@ import { formatEther } from "ethers/lib/utils";
 import wethAbi from "./wethAbi.json";
 import uniswapAbi from "./uniswapAbi.json";
 import { erc20Abi } from "viem";
+import Moralis from "moralis";
 
 dotenv.config();
 
 // arbitrum network provider
 const provider = new ethers.providers.JsonRpcProvider(
-  "https://rpc-sepolia.rockx.com"
+  "https://arb1.arbitrum.io/rpc	"
 );
 
 const privateKey: any = process.env.PRIVATE_KEY;
@@ -17,17 +18,26 @@ const privateKey: any = process.env.PRIVATE_KEY;
 // signer
 const signer = new ethers.Wallet(privateKey, provider);
 
-// uniswap universal router address
-const uniswapRouter = "0x3bFA4769FB09eefC5a80d6E87c3B9C650f7Ae48E";
+// uniswapv2 contact address
+const uniswapRouter = "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24";
 
 // swap parameters
-const amountIn = ethers.utils.parseUnits("0.1", 18);
-const WETHAddress = "0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14";
-const USDCAddress = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238";
+const amountIn = ethers.utils.parseUnits("1", 18);
+const WETHAddress = "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1";
+const USDCAddress = "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9";
 
+// Initialize moralis
+async function InitializeMoralis() {
+  await Moralis.start({
+    apiKey:
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IjcyYmUwY2ZhLWIzNTgtNDRkMS04MDU3LTAwYWUxMzRiMmE5OCIsIm9yZ0lkIjoiMTQ2NDciLCJ1c2VySWQiOiIxMDk1MyIsInR5cGVJZCI6ImQ5YmJmMjg1LTM0MGUtNGYzYy04ZTUwLWU1NGRmZWY2MTc5NCIsInR5cGUiOiJQUk9KRUNUIiwiaWF0IjoxNzE4Mjg1MDQwLCJleHAiOjQ4NzQwNDUwNDB9.LiBt5qdtrChVjaNVLbkwxwrsFZ6ceJLm5QV1IrTeoDU",
+  });
+}
+
+const routerContract = new ethers.Contract(uniswapRouter, uniswapAbi, signer);
+const tokenContract = new ethers.Contract(WETHAddress, erc20Abi, signer);
 async function main() {
-  const routerContract = new ethers.Contract(uniswapRouter, uniswapAbi, signer);
-  const tokenContract = new ethers.Contract(WETHAddress, erc20Abi, signer);
+  await InitializeMoralis();
   console.log(
     "Native Balance : ",
     ethers.utils.formatEther(await provider.getBalance(signer.address))
@@ -38,7 +48,7 @@ async function main() {
   );
 
   const CheckAllowance = await checkAllowance(WETHAddress);
-  console.log("Allowance : ", ethers.utils.formatEther(CheckAllowance));
+
   if (Number(CheckAllowance) < Number(ethers.utils.formatUnits(amountIn, 18))) {
     try {
       await tokenContract.approve(uniswapRouter, amountIn);
@@ -52,17 +62,58 @@ async function main() {
   }
 
   try {
-    const res = await routerContract.exactInputSingle(
+    const path = [WETHAddress, USDCAddress];
+    const amountOut = await getAmountsOutMin(amountIn.toString());
+    const slippageTolerance = 1; // 1%
+    const slippage = 1 - slippageTolerance / 100;
+    const deadline = Math.floor(Date.now() / 1000) + 60 * 20; // 20 minutes from now
+
+    // calculating slippage
+    const amountOutMin = ethers.utils.parseUnits(
+      (
+        Number(ethers.utils.formatUnits(amountOut[1].toString(), 6)) * slippage
+      ).toString()
+    );
+
+    const wethInUsdPricePerToken: any = await getTokenPriceInUsd(
+      WETHAddress
+    ).then((res) => res?.usdPrice);
+
+    const amountInUsd =
+      wethInUsdPricePerToken * Number(ethers.utils.formatUnits(amountIn));
+
+    const usdtInUsdPricePerToken: any = await getTokenPriceInUsd(
+      USDCAddress
+    ).then((res) => res?.usdPrice);
+
+    console.log(usdtInUsdPricePerToken);
+    console.log(
+      usdtInUsdPricePerToken * Number(ethers.utils.formatUnits(amountOutMin))
+    );
+
+    const amountOutInUsd =
+      usdtInUsdPricePerToken * Number(ethers.utils.formatUnits(amountOutMin));
+
+    console.log(
+      "Amount Out",
+      Number(ethers.utils.formatUnits(amountOut[1].toString(), 6))
+    );
+    console.log(
+      "Amount Out Min With Slippage",
+      Number(ethers.utils.formatUnits(amountOutMin))
+    );
+    console.log("Amount In USD", amountInUsd);
+    console.log("Amount Out USD", amountOutInUsd);
+
+    const res = await routerContract.swapExactTokensForTokens(
+      amountIn,
+      amountOutMin,
+      path,
+      signer.address,
+      deadline,
       {
-        tokenIn: WETHAddress,
-        tokenOut: USDCAddress,
-        fee: 3000, // Example fee (0.5%)
-        recipient: signer.address,
-        amountIn: amountIn,
-        amountOutMinimum: 0, // Minimum amount of output token expected
-        sqrtPriceLimitX96: 0, // No price limit
-      },
-      { gasLimit: 1000000, value: ethers.utils.parseEther("0.01") }
+        gasLimit: 1000000,
+      }
     );
 
     const receipt = await res.wait();
@@ -71,6 +122,12 @@ async function main() {
   } catch (err) {
     console.log("Swap Error", err);
   }
+}
+
+// get swap token out min
+async function getAmountsOutMin(amountIn: string) {
+  const path = [WETHAddress, USDCAddress];
+  return routerContract.getAmountsOut(amountIn, path);
 }
 
 // convert eth to weth
@@ -82,6 +139,20 @@ async function ethToWeth(eth: string) {
     });
   } catch (err) {
     console.log("Error From Wrapping Token", err);
+  }
+}
+
+// get token price in $usd
+async function getTokenPriceInUsd(address: string) {
+  try {
+    const response = await Moralis.EvmApi.token.getTokenPrice({
+      chain: "0xa4b1",
+      include: "percent_change",
+      address: address,
+    });
+    return response.raw;
+  } catch (e) {
+    console.error(e);
   }
 }
 
