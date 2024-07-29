@@ -4,7 +4,6 @@ import { formatEther } from "ethers/lib/utils";
 import wethAbi from "./wethAbi.json";
 import uniswapAbi from "./uniswapAbi.json";
 import { erc20Abi } from "viem";
-import Moralis from "moralis";
 
 dotenv.config();
 
