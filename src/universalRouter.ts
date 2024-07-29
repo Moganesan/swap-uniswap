@@ -345,11 +345,22 @@ export const swapTokens = async () => {
 
   const permit2 = new web3.eth.Contract(PERMIT_2_ABI, PERMIT2_ADDRESS);
 
-  const txApproval = await permit2.methods
-    .approve(WETH_ADDRESS, SWAP_ROUTER_ADDRESS, MAX_UINT160, 20_000_000_000_000)
-    .send({ from: address[0] });
+  const checkPermit: any = await permit2.methods
+    .allowance(address[0], WETH_ADDRESS, SWAP_ROUTER_ADDRESS)
+    .call();
 
-  console.log("Approval Tx", txApproval);
+  if (Number(checkPermit.expiration) == 0) {
+    const txApproval = await permit2.methods
+      .approve(
+        WETH_ADDRESS,
+        SWAP_ROUTER_ADDRESS,
+        MAX_UINT160,
+        20_000_000_000_000
+      )
+      .send({ from: address[0] });
+
+    console.log("Approval Tx", txApproval);
+  }
 
   const trade = await V3Trade.fromRoute(
     new RouteV3([pool], WETH, TOKEN_B),
